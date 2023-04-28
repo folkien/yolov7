@@ -16,6 +16,29 @@ from utils.torch_utils import select_device, TracedModel
 from utils.general import check_img_size, check_requirements, check_imshow, non_max_suppression, apply_classifier, \
     scale_coords, xyxy2xywh, strip_optimizer, set_logging, increment_path
 
+
+def DrawDetections(image : np.array, 
+                   detections : list, 
+                   colors : list) -> np.array:
+    ''' Draw all detections.'''
+    for detection in detections:
+        label, confidence, bbox = detection
+        left, top, right, bottom = bbox
+        left, top, right, bottom = int(left), int(top), int(right), int(bottom)
+
+        cv2.rectangle(image, 
+                      (left, top), 
+                      (right, bottom), 
+                      (255,255,255), 
+                      2)
+        cv2.putText(image, '{} [{:.2f}]'.format(label, float(confidence)),
+                    (left+2, top - 3), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                    (0, 0, 0), 2)
+        cv2.putText(image, '{} [{:.2f}]'.format(label, float(confidence)),
+                    (left, top - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                    (255, 255, 255), 1)
+    return image
+
 def Cv2ImageToNetworkInput(img : np.array,
                      netWidth : int = 640,
                      netStride : int = 32):
@@ -157,7 +180,12 @@ if __name__ == '__main__':
     # Model : Detect objects in image
     detections = ModelDetect(model, device,names, image)
 
-    print(names)
+    # Image : Draw detections
+    image = DrawDetections(image, detections, colors)
+
+    # Image : save.
+    cv2.imwrite('output.jpeg', image)
+
     
 
 
