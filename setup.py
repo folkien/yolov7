@@ -9,7 +9,7 @@ with open(os.path.join(os.path.dirname(__file__), "README.md")) as readme:
     README = readme.read()
 
 setuptools.setup(
-    name='yolov7-wrapper',
+    name='yolov7wrapper',
     version='0.0.1',
     author='Sławomir Paszko',
     description='Wrapper for YOLOv7 model and original code',

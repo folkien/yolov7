@@ -9,11 +9,10 @@ import torch
 import numpy as np
 import torch.backends.cudnn as cudnn
 from numpy import random
-from models.experimental import attempt_load
-from utils.general import check_img_size
-from utils.datasets import letterbox
-from utils.torch_utils import select_device, TracedModel
-from utils.general import check_img_size, check_requirements, check_imshow, non_max_suppression, apply_classifier, \
+from .models.experimental import attempt_load
+from .utils.datasets import letterbox
+from .utils.torch_utils import select_device, TracedModel
+from .utils.general import check_img_size, check_requirements, check_imshow, non_max_suppression, apply_classifier, \
     scale_coords, xyxy2xywh, strip_optimizer, set_logging, increment_path
 
 
