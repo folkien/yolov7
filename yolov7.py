@@ -144,10 +144,6 @@ class ModelYOLOv7:
         # Detections list.
         detections = []
 
-        # Run inference
-        if self.device.type != 'cpu':
-            self.model(torch.zeros(1, 3, self.imgsz, self.imgsz).to(self.device).type_as(next(self.model.parameters())))  # run once
-
         # Image : Convert image to network input
         inputImage = Cv2ImageToNetworkInput(image, 
                                         netWidth=self.imgsz,
@@ -172,7 +168,6 @@ class ModelYOLOv7:
 
         # Process detections
         for i, det in enumerate(pred):  # detections per image
-            #gn = torch.tensor(image.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             if len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], image.shape).round()
