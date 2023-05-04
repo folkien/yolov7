@@ -147,8 +147,6 @@ class ModelYOLOv7:
         # Run inference
         if self.device.type != 'cpu':
             self.model(torch.zeros(1, 3, self.imgsz, self.imgsz).to(self.device).type_as(next(self.model.parameters())))  # run once
-        old_img_w = old_img_h = self.imgsz
-        old_img_b = 1
 
         # Image : Convert image to network input
         inputImage = Cv2ImageToNetworkInput(image, 
@@ -162,14 +160,6 @@ class ModelYOLOv7:
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
 
-        # Model : Warmup
-        if self.device.type != 'cpu' and (old_img_b != img.shape[0] or old_img_h != img.shape[2] or old_img_w != img.shape[3]):
-            old_img_b = img.shape[0]
-            old_img_h = img.shape[2]
-            old_img_w = img.shape[3]
-            for i in range(3):
-                self.model(img)[0]
-
         # Inference
         with torch.no_grad():   # Calculating gradients would cause a GPU memory leak
             pred = self.model(img)[0]
@@ -182,7 +172,7 @@ class ModelYOLOv7:
 
         # Process detections
         for i, det in enumerate(pred):  # detections per image
-            gn = torch.tensor(image.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+            #gn = torch.tensor(image.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             if len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], image.shape).round()
