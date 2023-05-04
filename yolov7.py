@@ -2,6 +2,10 @@
     Helpers function and code for YOLOv7.
 '''
 import argparse
+from collections import namedtuple
+from dataclasses import dataclass, field
+import logging
+import os
 import time
 from pathlib import Path
 import cv2
@@ -16,28 +20,9 @@ from utils.torch_utils import select_device, TracedModel
 from utils.general import check_img_size, check_requirements, check_imshow, non_max_suppression, apply_classifier, \
     scale_coords, xyxy2xywh, strip_optimizer, set_logging, increment_path
 
+# Named tuple with detection data
+Detection = namedtuple('Detection', ['label', 'confidence', 'bbox'])
 
-def DrawDetections(image : np.array, 
-                   detections : list, 
-                   colors : list) -> np.array:
-    ''' Draw all detections.'''
-    for detection in detections:
-        label, confidence, bbox = detection
-        left, top, right, bottom = bbox
-        left, top, right, bottom = int(left), int(top), int(right), int(bottom)
-
-        cv2.rectangle(image, 
-                      (left, top), 
-                      (right, bottom), 
-                      (255,255,255), 
-                      2)
-        cv2.putText(image, '{} [{:.2f}]'.format(label, float(confidence)),
-                    (left+2, top - 3), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                    (0, 0, 0), 2)
-        cv2.putText(image, '{} [{:.2f}]'.format(label, float(confidence)),
-                    (left, top - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                    (255, 255, 255), 1)
-    return image
 
 def Cv2ImageToNetworkInput(img : np.array,
                      netWidth : int = 640,
@@ -54,139 +39,190 @@ def Cv2ImageToNetworkInput(img : np.array,
     img = np.ascontiguousarray(img)
     return img
 
+@dataclass
+class ModelYOLOv7:
+    # Path to model directory
+    path : str =field(default=None)
+    # GPU device ID
+    gpuDevice : int = field(default=0)
+    # Device handler
+    device : str = field(init=False, default=None)
+    # CNN model object
+    model : object = field(init=False, default=None)
+    # Model input image size
+    imgsz : int = field(default=640)
+    # Model colors generated for classes
+    colors : list = field(init=False, default=None)
+    # Half precision
+    half : bool = field(default=True)
+    # Traced model
+    trace : bool = field(default=False)
 
-def ModelLoad(gpuID: int = 0,
-              directoryPath: str = './ObjectDetectors/yolov7coco/',
-              modelName : str = 'yolov7.pt',
-              imgsz: int = 640,
-              trace: bool = False,
-              half: bool = True,
-              ):
-    ''' 
-        Load YOLOv7 model with pytorch.
-        Parameters:
-            gpuID : GPU ID to use
-            directoryPath : Path to directory with model
-            modelName : Name of model file
-            imgsz : Detector/model image size width 640
+    def __post_init__(self):
+        ''' Checks after init. '''
+        if (self.path is None):
+            raise ValueError('(ModelYOLOv7) Path to model directory is None.')
 
-    '''
-    # GPU : Select used GPU
-    device = select_device(str(gpuID))
-
-    # Model : Load model
-    model = attempt_load(f"{directoryPath}{modelName}",
-                          map_location=device)  # load FP32 model
-    stride = int(model.stride.max())  # model stride
-    imgsz = check_img_size(imgsz, s=stride)  # check img_size
-
-    # Model : Trace model    
-    if trace:
-        model = TracedModel(model, device, imgsz)
-
-    # Model : Convert model to half precision
-    if half:
-        model.half()  # to FP16
+        if (not os.path.exists(f"{self.path}yolov7.pt")):
+            raise ValueError(f'(ModelYOLOv7) Path to model directory {self.path}yolov7.pt does not exist.')
+        
+    def IsLoaded(self) -> bool:
+        ''' Returns True if model is loaded. '''
+        return self.model is not None
     
-    # Get names and colors
-    names = model.module.names if hasattr(model, 'module') else model.names
-    colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]
-
-    return model, device, names, colors
-
-def ModelDetect(model, 
-                device, 
-                names, 
-                image : np.array, 
-                confidence : float = 0.50,
-                iou : float = 0.45,
-                filterClasses : list = None,
-                imgsz: int = 640,
-                half: bool = True):
-
-    ''' 
-        Detect objects in image with YOLOv7 model.
-        Parameters:
-            model : YOLOv7 model
-            device : GPU device
-            names : Names of objects
-            colors : Colors of objects
-            img0 : Image to detect objects in
-            imgsz : Detector/model image size width 640
-            half : Convert model to half precision
-            trace : Trace model
-    '''
-    # Detections list.
-    detections = []
-
-    # Run inference
-    if device.type != 'cpu':
-        model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
-    old_img_w = old_img_h = imgsz
-    old_img_b = 1
-
-    # Image : Convert image to network input
-    inputImage = Cv2ImageToNetworkInput(image, 
-                                    netWidth=imgsz,
-                                    netStride=32)
-
-    # Image : Preprocess image as tensor
-    img = torch.from_numpy(inputImage).to(device)
-    img = img.half() if half else img.float()  # uint8 to fp16/32
-    img /= 255.0  # 0 - 255 to 0.0 - 1.0
-    if img.ndimension() == 3:
-        img = img.unsqueeze(0)
-
-    # Model : Warmup
-    if device.type != 'cpu' and (old_img_b != img.shape[0] or old_img_h != img.shape[2] or old_img_w != img.shape[3]):
-        old_img_b = img.shape[0]
-        old_img_h = img.shape[2]
-        old_img_w = img.shape[3]
-        for i in range(3):
-            model(img)[0]
-
-    # Inference
-    with torch.no_grad():   # Calculating gradients would cause a GPU memory leak
-        pred = model(img)[0]
-
-    # Apply NMS
-    pred = non_max_suppression(pred, confidence, iou, classes=filterClasses)
-
-    # Process detections
-    for i, det in enumerate(pred):  # detections per image
-        gn = torch.tensor(image.shape)[[1, 0, 1, 0]]  # normalization gain whwh
-        if len(det):
-            # Rescale boxes from img_size to im0 size
-            det[:, :4] = scale_coords(img.shape[2:], det[:, :4], image.shape).round()
-
-
-            # Write results
-            for *xyxy, conf, cls in reversed(det):
-                bbox = torch.tensor(xyxy).view(1, 4).view(-1).tolist()
-                #xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
-                detections.append((names[int(cls)], float(conf), bbox))
-
-    return detections
-
-
-
-if __name__ == '__main__':
-    # Model : Load COCO model
-    model,device,names, colors = ModelLoad(gpuID=0,
-                                            directoryPath='zoo/yolov7coco/')
-    # Image : Load image
-    image = cv2.imread('inference/images/bus.jpg')
-
-    # Model : Detect objects in image
-    detections = ModelDetect(model, device,names, image)
-
-    # Image : Draw detections
-    image = DrawDetections(image, detections, colors)
-
-    # Image : save.
-    cv2.imwrite('output.jpeg', image)
-
+    @property
+    def names(self) -> list:
+        ''' Returns model names. '''
+        if (self.model is None):
+            return []
+        
+        return self.model.names
     
+    @property
+    def names_count(self) -> int:
+        ''' Returns model names count. '''
+        if (self.model is None):
+            return 0
+        
+        return self.model.nc
+        
+    def Init(self) -> bool:
+        ''' Initalized and load model.'''
+        # GPU : Select used GPU
+        self.device = select_device(str(self.gpuDevice))
+
+        # Model : Load model
+        self.model = attempt_load(f"{self.path}yolov7.pt",
+                            map_location=self.device)  # load FP32 model
+        if (self.model is None):
+            logging.fatal('(ModelYOLOv7) Model load failed!')
+            return False
+
+        # Check if image size is divisible by stride (32).
+        stride = int(self.model.stride.max())  # model stride
+        self.imgsz = check_img_size(self.imgsz, 
+                                    s=stride)  # check img_size
+
+        # Model : Trace model    
+        if self.trace:
+            self.model = TracedModel(self.model, 
+                                     self.device, 
+                                     self.imgsz)
+
+        # Model : Convert model to half precision
+        if self.half:
+            self.model.half()  # to FP16
+        
+        # Get names and colors
+        self.colors = [[random.randint(0, 255) for _ in range(3)] for _ in self.names]
+
+        return True
+
+    def Detect(self,
+                    image : np.array, 
+                    confidence : float = 0.50,
+                    iou : float = 0.45,
+                    filterClasses : list = None):
+
+        ''' 
+            Detect objects in image with YOLOv7 model.
+            Parameters:
+                model : YOLOv7 model
+                device : GPU device
+                names : Names of objects
+                colors : Colors of objects
+                img0 : Image to detect objects in
+                imgsz : Detector/model image size width 640
+                half : Convert model to half precision
+                trace : Trace model
+        '''
+        # Check : Model loaded
+        if (self.model is None):
+            logging.fatal('(ModelYOLOv7) Model is not loaded!')
+            return None
+
+        # Detections list.
+        detections = []
+
+        # Run inference
+        if self.device.type != 'cpu':
+            self.model(torch.zeros(1, 3, self.imgsz, self.imgsz).to(self.device).type_as(next(self.model.parameters())))  # run once
+        old_img_w = old_img_h = self.imgsz
+        old_img_b = 1
+
+        # Image : Convert image to network input
+        inputImage = Cv2ImageToNetworkInput(image, 
+                                        netWidth=self.imgsz,
+                                        netStride=32)
+
+        # Image : Preprocess image as tensor
+        img = torch.from_numpy(inputImage).to(self.device)
+        img = img.half() if self.half else img.float()  # uint8 to fp16/32
+        img /= 255.0  # 0 - 255 to 0.0 - 1.0
+        if img.ndimension() == 3:
+            img = img.unsqueeze(0)
+
+        # Model : Warmup
+        if self.device.type != 'cpu' and (old_img_b != img.shape[0] or old_img_h != img.shape[2] or old_img_w != img.shape[3]):
+            old_img_b = img.shape[0]
+            old_img_h = img.shape[2]
+            old_img_w = img.shape[3]
+            for i in range(3):
+                self.model(img)[0]
+
+        # Inference
+        with torch.no_grad():   # Calculating gradients would cause a GPU memory leak
+            pred = self.model(img)[0]
+
+        # Apply NMS
+        pred = non_max_suppression(pred, 
+                                   confidence, 
+                                   iou, 
+                                   classes=filterClasses)
+
+        # Process detections
+        for i, det in enumerate(pred):  # detections per image
+            gn = torch.tensor(image.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+            if len(det):
+                # Rescale boxes from img_size to im0 size
+                det[:, :4] = scale_coords(img.shape[2:], det[:, :4], image.shape).round()
+
+
+                # Write results
+                for *xyxy, conf, cls in reversed(det):
+                    bbox = torch.tensor(xyxy).view(1, 4).view(-1).tolist()
+                    #xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                    detections.append(Detection(self.names[int(cls)], float(conf), bbox))
+
+        return detections
+
+    def Draw(self,
+             image : np.array, 
+             detections : list) -> np.array:
+        ''' Draw all detections.'''
+
+        for detection in detections:
+            # Get detection bbox as integers
+            left, top, right, bottom = detection.bbox
+            left, top, right, bottom = int(left), int(top), int(right), int(bottom)
+
+            # Draw detection rectangle
+            cv2.rectangle(image, 
+                        (left, top), 
+                        (right, bottom), 
+                        (255,255,255), 
+                        2)
+            # Draw detection text with shadow
+            cv2.putText(image, '{} [{:.2f}]'.format(detection.label, float(detection.confidence)),
+                        (left+2, top - 3), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                        (0, 0, 0), 2)
+            cv2.putText(image, '{} [{:.2f}]'.format(detection.label, float(detection.confidence)),
+                        (left, top - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                        (255, 255, 255), 1)
+        return image
+
+
+
 
 
 # def detect(save_img=False):
