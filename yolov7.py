@@ -6,8 +6,6 @@ from collections import namedtuple
 from dataclasses import dataclass, field
 import logging
 import os
-import time
-from pathlib import Path
 import cv2
 import torch
 import numpy as np
@@ -17,8 +15,8 @@ from models.experimental import attempt_load
 from utils.general import check_img_size
 from utils.datasets import letterbox
 from utils.torch_utils import select_device, TracedModel
-from utils.general import check_img_size, check_requirements, check_imshow, non_max_suppression, apply_classifier, \
-    scale_coords, xyxy2xywh, strip_optimizer, set_logging, increment_path
+from utils.general import check_img_size, non_max_suppression, \
+    scale_coords 
 
 # Named tuple with detection data
 Detection = namedtuple('Detection', ['label', 'confidence', 'bbox'])
@@ -141,8 +139,6 @@ class ModelYOLOv7:
             logging.fatal('(ModelYOLOv7) Model is not loaded!')
             return None
 
-        # Detections list.
-        detections = []
 
         # Image : Convert image to network input
         inputImage = Cv2ImageToNetworkInput(image, 
@@ -166,6 +162,8 @@ class ModelYOLOv7:
                                    iou, 
                                    classes=filterClasses)
 
+        # Detections list.
+        detections = []
         # Process detections
         for i, det in enumerate(pred):  # detections per image
             if len(det):
